@@ -79,7 +79,6 @@ function FileList({ files, onFileDeleted, showOwner = false }) {
     };
 
     const handleShare = async (file) => {
-        const fileId = file.id || file._id;
         setSharingFile(file);
         setShareModalOpen(true);
     };

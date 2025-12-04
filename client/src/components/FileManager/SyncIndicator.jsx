@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { getSocket } from '../../services/syncService';
 import './SyncIndicator.css';
 
-function SyncIndicator({ isConnected, lastSync }) {
+function SyncIndicator({ lastSync }) {
     const [status, setStatus] = React.useState('disconnected');
 
     useEffect(() => {
