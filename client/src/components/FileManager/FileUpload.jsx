@@ -104,7 +104,7 @@ function FileUpload({ onUploadComplete }) {
                 originalSize: shouldCompress ? originalSize : undefined,
             });
 
-            const { fileId, uploadId, chunkSize } = initResponse.data;
+            const { fileId, uploadId } = initResponse.data;
 
             // Step 5: Chunk the file (compressed or original)
             const chunks = chunkFile(fileToUpload);
