@@ -106,6 +106,13 @@ const fileSchema = new mongoose.Schema({
 // Compound index for efficient user file queries
 fileSchema.index({ owner: 1, isDeleted: 1, createdAt: -1 });
 fileSchema.index({ owner: 1, path: 1 });
+fileSchema.index({ _id: 1, owner: 1, isDeleted: 1});
+fileSchema.index({ _id: 1, owner: 1, uploadId: 1});
+fileSchema.index({ _id: 1, owner: 1});
+fileSchema.index({_id: 1, owner: 1, isDeleted: 1, uploadStatus: 1});
+fileSchema.index({_id: 1, isDeleted: 1, uploadStatus: 1});
+fileSchema.index({_id: 1, sharedWith: 1, isDeleted: 1, uploadStatus: 1});
+
 
 /**
  * Get full S3 object key

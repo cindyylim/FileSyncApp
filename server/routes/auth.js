@@ -55,7 +55,6 @@ router.post('/register', async (req, res) => {
         res.status(201).json({
             message: 'User registered successfully',
             user: {
-                id: user._id,
                 username: user.username,
                 email: user.email,
                 storageUsed: user.storageUsed,
@@ -115,7 +114,6 @@ router.post('/login', async (req, res) => {
         res.json({
             message: 'Login successful',
             user: {
-                id: user._id,
                 username: user.username,
                 email: user.email,
                 storageUsed: user.storageUsed,
@@ -136,7 +134,6 @@ router.get('/me', authenticateToken, async (req, res) => {
     try {
         res.json({
             user: {
-                id: req.user._id,
                 username: req.user.username,
                 email: req.user.email,
                 storageUsed: req.user.storageUsed,
