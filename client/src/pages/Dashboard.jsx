@@ -12,7 +12,10 @@ import './Dashboard.css';
 function Dashboard() {
     const navigate = useNavigate();
     const [files, setFiles] = useState([]);
+    const [sharedFiles, setSharedFiles] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadingShared, setLoadingShared] = useState(false);
+    const [activeTab, setActiveTab] = useState('my-files');
     const { user, logout } = useAuthStore();
     const [lastSync, setLastSync] = useState(null);
 
@@ -29,9 +32,26 @@ function Dashboard() {
         }
     };
 
+    // Load shared files
+    const loadSharedFiles = async () => {
+        setLoadingShared(true);
+        try {
+            const response = await fileAPI.getShared();
+            console.log(response.data.files);
+            setSharedFiles(response.data.files);
+        } catch (error) {
+            console.error('Error loading shared files:', error);
+        } finally {
+            setLoadingShared(false);
+        }
+    };
+
     useEffect(() => {
         loadFiles();
-    }, []);
+        if (activeTab === 'shared-files') {
+            loadSharedFiles();
+        }
+    }, [activeTab]);
 
     // Listen for CDC file changes
     useEffect(() => {
@@ -74,13 +94,18 @@ function Dashboard() {
     };
 
     const handleFileDeleted = (fileId) => {
-        setFiles((prev) => prev.filter((f) => f.id !== fileId));
+        setFiles((prev) => prev.filter((f) => (f.id || f._id) !== fileId));
+        setSharedFiles((prev) => prev.filter((f) => (f.id || f._id) !== fileId));
     };
 
     const handleUploadComplete = () => {
         // Reload files after upload
         loadFiles();
     };
+
+    const currentFiles = activeTab === 'my-files' ? files : sharedFiles;
+    const currentLoading = activeTab === 'my-files' ? loading : loadingShared;
+    const currentFileCount = currentFiles.length;
 
     return (
         <div className="dashboard">
@@ -111,23 +136,41 @@ function Dashboard() {
 
             <main className="dashboard-content">
                 <div className="content-header">
+                    <div className="tabs">
+                        <button
+                            className={`tab-button ${activeTab === 'my-files' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('my-files')}
+                        >
+                            My Files
+                        </button>
+                        <button
+                            className={`tab-button ${activeTab === 'shared-files' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('shared-files')}
+                        >
+                            Shared with Me
+                        </button>
+                    </div>
                     <div>
-                        <h2>My Files</h2>
+                        <h2>{activeTab === 'my-files' ? 'My Files' : 'Shared with Me'}</h2>
                         <p className="content-subtitle">
-                            {files.length} {files.length === 1 ? 'file' : 'files'}
+                            {currentFileCount} {currentFileCount === 1 ? 'file' : 'files'}
                         </p>
                     </div>
                 </div>
 
-                <FileUpload onUploadComplete={handleUploadComplete} />
+                {activeTab === 'my-files' && <FileUpload onUploadComplete={handleUploadComplete} />}
 
-                {loading ? (
+                {currentLoading ? (
                     <div className="loading-container">
                         <div className="spinner" />
-                        <p>Loading files...</p>
+                        <p>Loading {activeTab === 'my-files' ? 'files' : 'shared files'}...</p>
                     </div>
                 ) : (
-                    <FileList files={files} onFileDeleted={handleFileDeleted} />
+                    <FileList
+                        files={currentFiles}
+                        onFileDeleted={handleFileDeleted}
+                        showOwner={activeTab === 'shared-files'}
+                    />
                 )}
             </main>
         </div >

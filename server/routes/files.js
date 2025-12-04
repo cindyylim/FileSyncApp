@@ -16,6 +16,48 @@ import crypto from 'crypto';
 const router = express.Router();
 
 /**
+ * GET /api/files/shared
+ * Get files shared with the current user
+ */
+router.get('/shared', authenticateToken, async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const skip = (page - 1) * limit;
+
+        const files = await File.find({
+            _id: { $in: req.user.sharedFiles },
+            isDeleted: false,
+            uploadStatus: 'completed',
+        })
+        .populate('owner', 'username email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select('-chunks'); // Don't return chunk details in list view
+
+        const total = await File.countDocuments({
+            _id: { $in: req.user.sharedFiles },
+            isDeleted: false,
+            uploadStatus: 'completed',
+        });
+
+        res.json({
+            files,
+            pagination: {
+                page,
+                limit,
+                total,
+                pages: Math.ceil(total / limit),
+            },
+        });
+    } catch (error) {
+        console.error('Get shared files error:', error);
+        res.status(500).json({ error: 'Server error while fetching shared files' });
+    }
+});
+
+/**
  * GET /api/files
  * List user's files with pagination
  */
@@ -326,12 +368,20 @@ router.get('/:id', authenticateToken, async (req, res) => {
  */
 router.get('/:id/download', authenticateToken, async (req, res) => {
     try {
-        const file = await File.findOne({
+        let file = await File.findOne({
             _id: req.params.id,
             owner: req.user._id,
             isDeleted: false,
             uploadStatus: 'completed',
         });
+        if (file == null) {
+            file = await File.findOne({
+                _id: req.params.id,
+                sharedWith: req.user._id,
+                isDeleted: false,
+                uploadStatus: 'completed',
+            });
+        }
 
         if (!file) {
             return res.status(404).json({ error: 'File not found or not ready' });
@@ -402,6 +452,110 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Delete file error:', error);
         res.status(500).json({ error: 'Server error while deleting file' });
+    }
+});
+
+/**
+ * POST /api/files/:id/share
+ * Share a file with another user
+ */
+router.post('/:id/share', authenticateToken, async (req, res) => {
+    try {
+        const { email } = req.body;
+        const fileId = req.params.id;
+
+        if (!email) {
+            return res.status(400).json({ error: 'Email is required' });
+        }
+
+        // Find the file to share
+        const file = await File.findOne({
+            _id: fileId,
+            owner: req.user._id,
+            isDeleted: false,
+        });
+
+        if (!file) {
+            return res.status(404).json({ error: 'File not found or unauthorized' });
+        }
+
+        // Find the user to share with
+        const targetUser = await User.findOne({ email: email.toLowerCase() });
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User with this email not found' });
+        }
+
+        // Check if file is already shared with this user
+        if (file.sharedWith.includes(targetUser._id)) {
+            return res.status(400).json({ error: 'File already shared with this user' });
+        }
+
+        // Check if trying to share with self
+        if (targetUser._id.toString() === req.user._id.toString()) {
+            return res.status(400).json({ error: 'Cannot share file with yourself' });
+        }
+
+        // Add user to file's sharedWith array
+        file.sharedWith.push(targetUser._id);
+        await file.save();
+
+        // Add file to user's sharedFiles array
+        targetUser.sharedFiles.push(file._id);
+        await targetUser.save();
+
+        res.json({
+            message: 'File shared successfully',
+            sharedWith: {
+                id: targetUser._id,
+                username: targetUser.username,
+                email: targetUser.email,
+            },
+        });
+    } catch (error) {
+        console.error('Share file error:', error);
+        res.status(500).json({ error: 'Server error while sharing file' });
+    }
+});
+
+/**
+ * DELETE /api/files/:id/unshare/:userId
+ * Unshare a file with a specific user
+ */
+router.delete('/:id/unshare/:userId', authenticateToken, async (req, res) => {
+    try {
+        const { id: fileId, userId } = req.params;
+
+        // Find the file
+        const file = await File.findOne({
+            _id: fileId,
+            owner: req.user._id,
+            isDeleted: false,
+        });
+
+        if (!file) {
+            return res.status(404).json({ error: 'File not found or unauthorized' });
+        }
+
+        // Find the user to unshare from
+        const targetUser = await User.findById(userId);
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Remove user from file's sharedWith array
+        file.sharedWith = file.sharedWith.filter(id => id.toString() !== userId);
+        await file.save();
+
+        // Remove file from user's sharedFiles array
+        targetUser.sharedFiles = targetUser.sharedFiles.filter(id => id.toString() !== fileId);
+        await targetUser.save();
+
+        res.json({
+            message: 'File unshared successfully',
+        });
+    } catch (error) {
+        console.error('Unshare file error:', error);
+        res.status(500).json({ error: 'Server error while unsharing file' });
     }
 });
 

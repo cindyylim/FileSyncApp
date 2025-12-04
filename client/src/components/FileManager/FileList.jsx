@@ -3,11 +3,14 @@ import useAuthStore from '../../stores/authStore';
 import { fileAPI } from '../../services/api';
 import { formatFileSize, formatDate, getFileIcon, getFileExtension } from '../../utils/fileUtils';
 import pako from 'pako';
+import ShareModal from './ShareModal';
 import './FileList.css';
 
-function FileList({ files, onFileDeleted }) {
+function FileList({ files, onFileDeleted, showOwner = false }) {
     const { user, setUser } = useAuthStore();
     const [deleting, setDeleting] = React.useState(null);
+    const [shareModalOpen, setShareModalOpen] = React.useState(false);
+    const [sharingFile, setSharingFile] = React.useState(null);
 
     const handleDownload = async (file) => {
         try {
@@ -75,6 +78,34 @@ function FileList({ files, onFileDeleted }) {
         }
     };
 
+    const handleShare = async (file) => {
+        const fileId = file.id || file._id;
+        setSharingFile(file);
+        setShareModalOpen(true);
+    };
+
+    const handleShareSubmit = async (email) => {
+        if (!sharingFile) return;
+        
+        const fileId = sharingFile.id || sharingFile._id;
+        try {
+            await fileAPI.share(fileId, email);
+            alert(`File "${sharingFile.filename}" shared successfully with ${email}`);
+        } catch (error) {
+            throw new Error(error.response?.data?.error || 'Failed to share file');
+        }
+    };
+
+    const handleCloseShareModal = () => {
+        setShareModalOpen(false);
+        setSharingFile(null);
+    };
+
+    // Check if file can be shared (only owner can share)
+    const canShareFile = (file) => {
+        return user && file.owner && (file.owner._id === user._id || file.owner === user._id);
+    };
+
     if (!files || files.length === 0) {
         return (
             <div className="file-list-empty glass-card">
@@ -86,9 +117,10 @@ function FileList({ files, onFileDeleted }) {
     }
 
     return (
-        <div className="file-list">
-            {files.map((file) => (
-                <div key={file.id || file._id} className="file-item glass-card fade-in">
+        <>
+            <div className="file-list">
+                {files.map((file) => (
+                    <div key={file.id || file._id} className="file-item glass-card fade-in">
                     <div className="file-icon">
                         {getFileIcon(file.mimeType)}
                         {getFileExtension(file.filename) && (
@@ -102,6 +134,12 @@ function FileList({ files, onFileDeleted }) {
                             <span>{formatFileSize(file.size)}</span>
                             <span>•</span>
                             <span>{formatDate(file.createdAt)}</span>
+                            {showOwner && file.owner && (
+                                <>
+                                    <span>•</span>
+                                    <span>Shared by {file.owner.username || file.owner.email}</span>
+                                </>
+                            )}
                         </div>
                     </div>
 
@@ -113,18 +151,37 @@ function FileList({ files, onFileDeleted }) {
                         >
                             ⬇️
                         </button>
-                        <button
-                            className="btn-icon btn-icon-danger"
-                            onClick={() => handleDelete(file)}
-                            disabled={deleting === file.id}
-                            title="Delete"
-                        >
-                            {deleting === file.id ? '⏳' : '🗑️'}
-                        </button>
+                        {canShareFile(file) && (
+                            <button
+                                className="btn-icon"
+                                onClick={() => handleShare(file)}
+                                title="Share"
+                            >
+                                🤝
+                            </button>
+                        )}
+                        {canShareFile(file) && (
+                            <button
+                                className="btn-icon btn-icon-danger"
+                                onClick={() => handleDelete(file)}
+                                disabled={deleting === file.id}
+                                title="Delete"
+                            >
+                                {deleting === file.id ? '⏳' : '🗑️'}
+                            </button>
+                        )}
                     </div>
-                </div>
-            ))}
-        </div>
+                    </div>
+                ))}
+            </div>
+            
+            <ShareModal
+                isOpen={shareModalOpen}
+                onClose={handleCloseShareModal}
+                onShare={handleShareSubmit}
+                fileName={sharingFile?.filename || ''}
+            />
+        </>
     );
 }
 

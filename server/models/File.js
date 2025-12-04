@@ -93,6 +93,10 @@ const fileSchema = new mongoose.Schema({
         enum: ['pending', 'uploading', 'completed', 'failed'],
         default: 'pending',
     },
+    sharedWith: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+    }],
 }, {
     timestamps: true, // createdAt, updatedAt
     toJSON: { virtuals: true },

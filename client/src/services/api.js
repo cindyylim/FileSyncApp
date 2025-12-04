@@ -66,6 +66,9 @@ export const fileAPI = {
     download: (id) => api.get(`/files/${id}/download`),
     delete: (id) => api.delete(`/files/${id}`),
     getUploadStatus: (id) => api.get(`/files/${id}/upload-status`),
+    share: (id, email) => api.post(`/files/${id}/share`, { email }),
+    getShared: (params) => api.get('/files/shared', { params }),
+    unshare: (id, userId) => api.delete(`/files/${id}/unshare/${userId}`),
 };
 
 /**

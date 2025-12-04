@@ -31,6 +31,10 @@ const userSchema = new mongoose.Schema({
         type: Number,
         default: 5 * 1024 * 1024 * 1024, // 5GB default quota
     },
+    sharedFiles: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'File',
+    }],
 }, {
     timestamps: true, // adds createdAt and updatedAt
 });
