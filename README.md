@@ -7,7 +7,6 @@ A full-stack file synchronization application with AWS S3 storage and MongoDB Ch
 - ✅ **File Upload/Download** - Multipart upload to S3 for large files
 - ✅ **Real-time Sync** - MongoDB Change Streams (CDC) for cross-device synchronization  
 - ✅ **User Authentication** - JWT-based secure authentication
-- ✅ **Storage Management** - Track storage usage with quotas
 - ✅ **Modern UI** - Glassmorphism design with smooth animations
 
 ## Tech Stack
@@ -184,22 +183,6 @@ When a file is uploaded/deleted:
 4. Event is broadcast via Socket.io to all user's connected devices
 5. UI updates in real-time
 
-## API Endpoints
-
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login user
-- `GET /api/auth/me` - Get current user
-
-### Files
-- `GET /api/files` - List user files
-- `POST /api/files/init-upload` - Initialize multipart upload
-- `POST /api/files/presigned-url` - Get pre-signed URL for chunk
-- `POST /api/files/complete-upload` - Complete multipart upload
-- `GET /api/files/:id` - Get file metadata
-- `GET /api/files/:id/download` - Get download URL
-- `DELETE /api/files/:id` - Delete file
-
 ## Testing
 
 ### Manual Testing
@@ -245,5 +228,4 @@ When a file is uploaded/deleted:
 
 - File versioning and history
 - Folder support
-- File sharing between users
 - Conflict resolution UI

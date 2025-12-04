@@ -11,7 +11,8 @@ import { s3Client, S3_CONFIG } from '../config/s3.js';
 import { authenticateToken } from '../middleware/auth.js';
 import File from '../models/File.js';
 import User from '../models/User.js';
-import crypto from 'crypto';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 
@@ -558,9 +559,5 @@ router.delete('/:id/unshare/:userId', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Server error while unsharing file' });
     }
 });
-
-// Fix import for GetObjectCommand
-import { GetObjectCommand } from '@aws-sdk/client-s3';
-import mongoose from 'mongoose';
 
 export default router;

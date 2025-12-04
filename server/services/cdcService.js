@@ -67,7 +67,7 @@ export class CDCService {
             if (operationType === 'delete') {
                 // For deletes, we need to get the document from update description
                 // or track it separately. For now, just broadcast the ID
-                document = { _id: documentKey._id };
+                document = { _id: documentKey._id, owner: documentKey.owner};
             }
 
             if (!document || !document.owner) {
