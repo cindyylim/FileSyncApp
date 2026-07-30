@@ -1,4 +1,7 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 import {
     CreateMultipartUploadCommand,
     CompleteMultipartUploadCommand,
@@ -7,7 +10,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { UploadPartCommand } from '@aws-sdk/client-s3';
-import { s3Client, S3_CONFIG } from '../config/s3.js';
+import { s3Client, S3_CONFIG, USE_LOCAL_STORAGE, LOCAL_STORAGE_DIR } from '../config/s3.js';
 import { authenticateToken } from '../middleware/auth.js';
 import File from '../models/File.js';
 import User from '../models/User.js';
@@ -31,11 +34,11 @@ router.get('/shared', authenticateToken, async (req, res) => {
             isDeleted: false,
             uploadStatus: 'completed',
         })
-        .populate('owner', 'username email')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .select('-chunks'); // Don't return chunk details in list view
+            .populate('owner', 'username email')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .select('-chunks'); // Don't return chunk details in list view
 
         const total = await File.countDocuments({
             _id: { $in: req.user.sharedFiles },
@@ -122,19 +125,25 @@ router.post('/init-upload', authenticateToken, async (req, res) => {
         // Generate unique S3 key
         const fileId = new mongoose.Types.ObjectId();
         const s3Key = `users/${req.user._id}/${fileId}/${filename}`;
+        let uploadId;
 
-        // Create multipart upload in S3
-        const createCommand = new CreateMultipartUploadCommand({
-            Bucket: S3_CONFIG.BUCKET_NAME,
-            Key: s3Key,
-            ContentType: mimeType,
-            Metadata: {
-                userId: req.user._id.toString(),
-                originalName: filename,
-            },
-        });
+        if (USE_LOCAL_STORAGE) {
+            uploadId = fileId.toString();
+        } else {
+            // Create multipart upload in S3
+            const createCommand = new CreateMultipartUploadCommand({
+                Bucket: S3_CONFIG.BUCKET_NAME,
+                Key: s3Key,
+                ContentType: mimeType,
+                Metadata: {
+                    userId: req.user._id.toString(),
+                    originalName: filename,
+                },
+            });
 
-        const multipartUpload = await s3Client.send(createCommand);
+            const multipartUpload = await s3Client.send(createCommand);
+            uploadId = multipartUpload.UploadId;
+        }
 
         // Create file document in MongoDB
         const file = new File({
@@ -147,7 +156,7 @@ router.post('/init-upload', authenticateToken, async (req, res) => {
             path,
             s3Bucket: S3_CONFIG.BUCKET_NAME,
             s3Key,
-            uploadId: multipartUpload.UploadId,
+            uploadId,
             uploadStatus: 'uploading',
             isCompressed,
             originalSize: isCompressed ? originalSize : size,
@@ -157,7 +166,7 @@ router.post('/init-upload', authenticateToken, async (req, res) => {
 
         res.status(201).json({
             fileId: file._id,
-            uploadId: multipartUpload.UploadId,
+            uploadId,
             s3Key,
             chunkSize: S3_CONFIG.CHUNK_SIZE,
             message: 'Upload initialized successfully',
@@ -193,6 +202,14 @@ router.post('/presigned-url', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'File not found or unauthorized' });
         }
 
+        if (USE_LOCAL_STORAGE) {
+            const presignedUrl = `/api/files/local-upload?fileId=${fileId}&uploadId=${uploadId}&partNumber=${partNumber}`;
+            return res.json({
+                presignedUrl,
+                partNumber,
+            });
+        }
+
         // Generate pre-signed URL for this part
         const command = new UploadPartCommand({
             Bucket: S3_CONFIG.BUCKET_NAME,
@@ -212,6 +229,36 @@ router.post('/presigned-url', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Presigned URL error:', error);
         res.status(500).json({ error: 'Server error while generating presigned URL' });
+    }
+});
+
+/**
+ * PUT /api/files/local-upload
+ * Local chunk upload handler for USE_LOCAL_STORAGE mode
+ */
+router.put('/local-upload', express.raw({ type: '*/*', limit: '100mb' }), async (req, res) => {
+    try {
+        const { fileId, partNumber, uploadId } = req.query;
+
+        if (!fileId || !partNumber || !uploadId) {
+            return res.status(400).json({ error: 'Missing fileId, partNumber, or uploadId query parameters' });
+        }
+
+        const chunkDir = path.join(LOCAL_STORAGE_DIR, 'chunks', fileId.toString());
+        await fs.promises.mkdir(chunkDir, { recursive: true });
+
+        const chunkPath = path.join(chunkDir, `part-${partNumber}`);
+        await fs.promises.writeFile(chunkPath, req.body);
+
+        const md5Hash = crypto.createHash('md5').update(req.body).digest('hex');
+        const etag = `"${md5Hash}"`;
+
+        res.setHeader('ETag', etag);
+        res.setHeader('Access-Control-Expose-Headers', 'ETag');
+        return res.status(200).send('OK');
+    } catch (error) {
+        console.error('Local chunk upload error:', error);
+        return res.status(500).json({ error: 'Failed to save local chunk' });
     }
 });
 
@@ -240,20 +287,49 @@ router.post('/complete-upload', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'File not found or unauthorized' });
         }
 
-        // Complete multipart upload in S3
-        const completeCommand = new CompleteMultipartUploadCommand({
-            Bucket: S3_CONFIG.BUCKET_NAME,
-            Key: file.s3Key,
-            UploadId: uploadId,
-            MultipartUpload: {
-                Parts: parts.map(part => ({
-                    ETag: part.etag,
-                    PartNumber: part.partNumber,
-                })),
-            },
-        });
+        if (USE_LOCAL_STORAGE) {
+            const finalFilePath = path.join(LOCAL_STORAGE_DIR, file.s3Key);
+            const finalDirPath = path.dirname(finalFilePath);
+            await fs.promises.mkdir(finalDirPath, { recursive: true });
 
-        await s3Client.send(completeCommand);
+            const writeStream = fs.createWriteStream(finalFilePath);
+            const sortedParts = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+            const chunkDir = path.join(LOCAL_STORAGE_DIR, 'chunks', fileId.toString());
+
+            for (const part of sortedParts) {
+                const chunkPath = path.join(chunkDir, `part-${part.partNumber}`);
+                if (fs.existsSync(chunkPath)) {
+                    const chunkBuffer = await fs.promises.readFile(chunkPath);
+                    writeStream.write(chunkBuffer);
+                }
+            }
+
+            await new Promise((resolve, reject) => {
+                writeStream.end(resolve);
+                writeStream.on('error', reject);
+            });
+
+            try {
+                await fs.promises.rm(chunkDir, { recursive: true, force: true });
+            } catch (rmErr) {
+                console.warn('Local chunk folder cleanup error:', rmErr.message);
+            }
+        } else {
+            // Complete multipart upload in S3
+            const completeCommand = new CompleteMultipartUploadCommand({
+                Bucket: S3_CONFIG.BUCKET_NAME,
+                Key: file.s3Key,
+                UploadId: uploadId,
+                MultipartUpload: {
+                    Parts: parts.map(part => ({
+                        ETag: part.etag,
+                        PartNumber: part.partNumber,
+                    })),
+                },
+            });
+
+            await s3Client.send(completeCommand);
+        }
 
         // Update file document
         file.chunks = parts.map(part => ({
@@ -292,16 +368,18 @@ router.post('/complete-upload', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Complete upload error:', error);
 
-        // Try to abort the multipart upload on error
-        try {
-            const abortCommand = new AbortMultipartUploadCommand({
-                Bucket: S3_CONFIG.BUCKET_NAME,
-                Key: file.s3Key,
-                UploadId: uploadId,
-            });
-            await s3Client.send(abortCommand);
-        } catch (abortError) {
-            console.error('Abort upload error:', abortError);
+        if (!USE_LOCAL_STORAGE) {
+            // Try to abort the multipart upload on error
+            try {
+                const abortCommand = new AbortMultipartUploadCommand({
+                    Bucket: S3_CONFIG.BUCKET_NAME,
+                    Key: file.s3Key,
+                    UploadId: uploadId,
+                });
+                await s3Client.send(abortCommand);
+            } catch (abortError) {
+                console.error('Abort upload error:', abortError);
+            }
         }
 
         res.status(500).json({ error: 'Server error while completing upload' });
@@ -388,6 +466,15 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'File not found or not ready' });
         }
 
+        if (USE_LOCAL_STORAGE) {
+            const downloadUrl = `/api/files/local-download/${file._id}`;
+            return res.json({
+                downloadUrl,
+                filename: file.originalName,
+                expiresIn: S3_CONFIG.PRESIGNED_URL_EXPIRY,
+            });
+        }
+
         // Generate pre-signed URL for download
         const command = new GetObjectCommand({
             Bucket: S3_CONFIG.BUCKET_NAME,
@@ -411,6 +498,29 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
 });
 
 /**
+ * GET /api/files/local-download/:id
+ * Direct file download endpoint for USE_LOCAL_STORAGE mode
+ */
+router.get('/local-download/:id', async (req, res) => {
+    try {
+        const file = await File.findById(req.params.id);
+        if (!file || file.isDeleted) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+
+        const filePath = path.join(LOCAL_STORAGE_DIR, file.s3Key);
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: 'File content not found on disk' });
+        }
+
+        return res.download(filePath, file.originalName);
+    } catch (error) {
+        console.error('Local download error:', error);
+        return res.status(500).json({ error: 'Server error during file download' });
+    }
+});
+
+/**
  * DELETE /api/files/:id
  * Delete file
  */
@@ -426,8 +536,18 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'File not found' });
         }
 
-        // Delete from S3
-        if (file.uploadStatus === 'completed') {
+        if (USE_LOCAL_STORAGE) {
+            const filePath = path.join(LOCAL_STORAGE_DIR, file.s3Key);
+            if (fs.existsSync(filePath)) {
+                try {
+                    await fs.promises.unlink(filePath);
+                    const folder = path.dirname(filePath);
+                    await fs.promises.rmdir(folder).catch(() => { });
+                } catch (unlinkErr) {
+                    console.warn('Could not delete local file:', unlinkErr.message);
+                }
+            }
+        } else if (file.uploadStatus === 'completed') {
             const deleteCommand = new DeleteObjectCommand({
                 Bucket: S3_CONFIG.BUCKET_NAME,
                 Key: file.s3Key,

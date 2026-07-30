@@ -14,7 +14,7 @@ function FileList({ files, onFileDeleted, showOwner = false }) {
 
     const handleDownload = async (file) => {
         try {
-            const fileId = file.id || file._id;
+            const fileId = file._id;
             const response = await fileAPI.download(fileId);
             const { downloadUrl } = response.data;
 
@@ -50,7 +50,7 @@ function FileList({ files, onFileDeleted, showOwner = false }) {
             return;
         }
 
-        const fileId = file.id || file._id;
+        const fileId = file._id;
         setDeleting(fileId);
 
         try {
@@ -85,8 +85,8 @@ function FileList({ files, onFileDeleted, showOwner = false }) {
 
     const handleShareSubmit = async (email) => {
         if (!sharingFile) return;
-        
-        const fileId = sharingFile.id || sharingFile._id;
+
+        const fileId = sharingFile._id;
         try {
             await fileAPI.share(fileId, email);
             alert(`File "${sharingFile.filename}" shared successfully with ${email}`);
@@ -119,61 +119,61 @@ function FileList({ files, onFileDeleted, showOwner = false }) {
         <>
             <div className="file-list">
                 {files.map((file) => (
-                    <div key={file.id || file._id} className="file-item glass-card fade-in">
-                    <div className="file-icon">
-                        {getFileIcon(file.mimeType)}
-                        {getFileExtension(file.filename) && (
-                            <span className="file-extension">{getFileExtension(file.filename)}</span>
-                        )}
-                    </div>
+                    <div key={file._id} className="file-item glass-card fade-in">
+                        <div className="file-icon">
+                            {getFileIcon(file.mimeType)}
+                            {getFileExtension(file.filename) && (
+                                <span className="file-extension">{getFileExtension(file.filename)}</span>
+                            )}
+                        </div>
 
-                    <div className="file-info">
-                        <div className="file-name">{file.filename}</div>
-                        <div className="file-meta">
-                            <span>{formatFileSize(file.size)}</span>
-                            <span>•</span>
-                            <span>{formatDate(file.createdAt)}</span>
-                            {showOwner && file.owner && (
-                                <>
-                                    <span>•</span>
-                                    <span>Shared by {file.owner.username || file.owner.email}</span>
-                                </>
+                        <div className="file-info">
+                            <div className="file-name">{file.filename}</div>
+                            <div className="file-meta">
+                                <span>{formatFileSize(file.size)}</span>
+                                <span>•</span>
+                                <span>{formatDate(file.createdAt)}</span>
+                                {showOwner && file.owner && (
+                                    <>
+                                        <span>•</span>
+                                        <span>Shared by {file.owner.username || file.owner.email}</span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="file-actions">
+                            <button
+                                className="btn-icon"
+                                onClick={() => handleDownload(file)}
+                                title="Download"
+                            >
+                                ⬇️
+                            </button>
+                            {canShareFile(file) && (
+                                <button
+                                    className="btn-icon"
+                                    onClick={() => handleShare(file)}
+                                    title="Share"
+                                >
+                                    🤝
+                                </button>
+                            )}
+                            {canShareFile(file) && (
+                                <button
+                                    className="btn-icon btn-icon-danger"
+                                    onClick={() => handleDelete(file)}
+                                    disabled={deleting === file._id}
+                                    title="Delete"
+                                >
+                                    {deleting === file._id ? '⏳' : '🗑️'}
+                                </button>
                             )}
                         </div>
                     </div>
-
-                    <div className="file-actions">
-                        <button
-                            className="btn-icon"
-                            onClick={() => handleDownload(file)}
-                            title="Download"
-                        >
-                            ⬇️
-                        </button>
-                        {canShareFile(file) && (
-                            <button
-                                className="btn-icon"
-                                onClick={() => handleShare(file)}
-                                title="Share"
-                            >
-                                🤝
-                            </button>
-                        )}
-                        {canShareFile(file) && (
-                            <button
-                                className="btn-icon btn-icon-danger"
-                                onClick={() => handleDelete(file)}
-                                disabled={deleting === file.id}
-                                title="Delete"
-                            >
-                                {deleting === file.id ? '⏳' : '🗑️'}
-                            </button>
-                        )}
-                    </div>
-                    </div>
                 ))}
             </div>
-            
+
             <ShareModal
                 isOpen={shareModalOpen}
                 onClose={handleCloseShareModal}

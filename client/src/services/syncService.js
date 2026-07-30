@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = 'http://localhost:5000';
+const SOCKET_URL = '/';
 
 /**
  * Socket.io client instance
@@ -11,7 +11,10 @@ let socket = null;
  * Initialize socket connection
  */
 export const initSocket = () => {
-    if (socket?.connected) {
+    if (socket) {
+        if (socket.disconnected) {
+            socket.connect();
+        }
         return socket;
     }
 
@@ -20,7 +23,7 @@ export const initSocket = () => {
         autoConnect: true,
         reconnection: true,
         reconnectionDelay: 1000,
-        reconnectionAttempts: 5,
+        reconnectionAttempts: 10,
     });
 
     socket.on('connect', () => {

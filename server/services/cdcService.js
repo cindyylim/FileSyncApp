@@ -9,6 +9,7 @@ export class CDCService {
         this.io = io;
         this.changeStream = null;
         this.userSockets = new Map(); // Map of userId -> Set of socket IDs
+        this.fileMetadataCache = new Map(); // Map of fileId -> { owner, sharedWith }
     }
 
     /**
@@ -16,6 +17,18 @@ export class CDCService {
      */
     async start() {
         try {
+            // Pre-populate fileMetadataCache from database
+            const existingFiles = await File.find({}, '_id owner sharedWith');
+            existingFiles.forEach((f) => {
+                if (f.owner) {
+                    this.fileMetadataCache.set(f._id.toString(), {
+                        owner: f.owner.toString(),
+                        sharedWith: (f.sharedWith || []).map((id) => id.toString()),
+                    });
+                }
+            });
+            console.log(`📋 CDC Service: Cached metadata for ${this.fileMetadataCache.size} existing files`);
+
             // Create change stream watching for insert, update, and delete operations
             this.changeStream = File.watch([
                 {
@@ -61,25 +74,46 @@ export class CDCService {
 
             console.log(`📡 CDC Event: ${operationType} for file ${documentKey._id}`);
 
-            // Get the document (fullDocument is null for delete operations)
-            let document = fullDocument;
+            const fileId = documentKey._id.toString();
+            let ownerId;
+            let sharedWithIds = [];
 
-            if (operationType === 'delete') {
-                // For deletes, we need to get the document from update description
-                // or track it separately. For now, just broadcast the ID
-                document = { _id: documentKey._id, owner: documentKey.owner};
+            if (fullDocument && fullDocument.owner) {
+                ownerId = fullDocument.owner.toString();
+                sharedWithIds = (fullDocument.sharedWith || []).map(id => id.toString());
+
+                // Cache file metadata for future delete events
+                this.fileMetadataCache.set(fileId, {
+                    owner: ownerId,
+                    sharedWith: sharedWithIds,
+                });
+            } else {
+                const cached = this.fileMetadataCache.get(fileId);
+                if (cached) {
+                    ownerId = cached.owner;
+                    sharedWithIds = cached.sharedWith;
+                    if (operationType === 'delete') {
+                        this.fileMetadataCache.delete(fileId);
+                    }
+                }
             }
 
-            if (!document || !document.owner) {
+            if (!ownerId) {
+                console.warn(`⚠️  CDC Service: Cannot determine owner for file ${fileId}`);
                 return;
             }
 
-            const userId = document.owner.toString();
-
-            // Broadcast to all connected devices of this user
-            this.broadcastToUser(userId, {
+            const payload = {
                 type: operationType,
-                file: this.sanitizeFile(document),
+                file: fullDocument
+                    ? this.sanitizeFile(fullDocument)
+                    : { _id: documentKey._id },
+            };
+
+            // Broadcast to all connected devices of the owner and shared users
+            const recipients = new Set([ownerId, ...sharedWithIds]);
+            recipients.forEach((userId) => {
+                this.broadcastToUser(userId, payload);
             });
 
         } catch (error) {
@@ -140,7 +174,7 @@ export class CDCService {
         if (!file) return null;
 
         return {
-            id: file._id,
+            _id: file._id,
             filename: file.filename,
             originalName: file.originalName,
             size: file.size,

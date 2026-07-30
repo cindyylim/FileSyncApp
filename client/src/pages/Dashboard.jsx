@@ -3,8 +3,8 @@ import useAuthStore from '../stores/authStore';
 import FileList from '../components/FileManager/FileList';
 import FileUpload from '../components/FileManager/FileUpload';
 import SyncIndicator from '../components/FileManager/SyncIndicator';
-import { fileAPI } from '../services/api';
-import { onFileChange, offFileChange } from '../services/syncService';
+import { fileAPI, authAPI } from '../services/api';
+import { initSocket, disconnectSocket, onFileChange, offFileChange } from '../services/syncService';
 import { formatFileSize } from '../utils/fileUtils';
 import { useNavigate } from 'react-router-dom';
 import './Dashboard.css';
@@ -55,21 +55,34 @@ function Dashboard() {
 
     // Listen for CDC file changes
     useEffect(() => {
+        initSocket();
+
         const handleFileChange = (data) => {
             console.log('File change received:', data);
             setLastSync(new Date());
 
-            if (data.type === 'insert' && data.file.uploadStatus === 'completed') {
-                // New file uploaded
-                setFiles((prev) => [data.file, ...prev]);
-            } else if (data.type === 'update') {
-                // File updated
-                setFiles((prev) =>
-                    prev.map((f) => ((f.id || f._id) === (data.file.id || data.file._id) ? { ...f, ...data.file } : f))
-                );
-            } else if (data.type === 'delete' || data.file.isDeleted) {
+            const file = data.file;
+            if (!file) return;
+
+            const targetId = (file._id)?.toString();
+            if (!targetId) return;
+
+            if (data.type === 'delete') {
                 // File deleted
-                setFiles((prev) => prev.filter((f) => (f.id || f._id) !== (data.file.id || data.file._id)));
+                setFiles((prev) => prev.filter((f) => (f._id)?.toString() !== targetId));
+                setSharedFiles((prev) => prev.filter((f) => (f._id)?.toString() !== targetId));
+                return;
+            }
+
+            if (file.uploadStatus === 'completed') {
+                setFiles((prev) => {
+                    const exists = prev.some((f) => (f._id)?.toString() === targetId);
+                    if (exists) {
+                        return prev.map((f) => ((f._id)?.toString() === targetId ? { ...f, ...file } : f));
+                    } else {
+                        return [file, ...prev];
+                    }
+                });
             }
         };
 
@@ -83,19 +96,21 @@ function Dashboard() {
     const handleLogout = async () => {
         try {
             await authAPI.logout();
+            disconnectSocket();
             logout();
             navigate('/login');
         } catch (error) {
             console.error('Logout error:', error);
             // Force logout on error
+            disconnectSocket();
             logout();
             navigate('/login');
         }
     };
 
     const handleFileDeleted = (fileId) => {
-        setFiles((prev) => prev.filter((f) => (f.id || f._id) !== fileId));
-        setSharedFiles((prev) => prev.filter((f) => (f.id || f._id) !== fileId));
+        setFiles((prev) => prev.filter((f) => (f._id) !== fileId));
+        setSharedFiles((prev) => prev.filter((f) => (f._id) !== fileId));
     };
 
     const handleUploadComplete = () => {

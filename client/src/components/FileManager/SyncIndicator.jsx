@@ -1,16 +1,15 @@
 import React, { useEffect } from 'react';
-import { getSocket } from '../../services/syncService';
+import { getSocket, initSocket } from '../../services/syncService';
 import './SyncIndicator.css';
 
 function SyncIndicator({ lastSync }) {
     const [status, setStatus] = React.useState('disconnected');
 
     useEffect(() => {
-        const socket = getSocket();
+        let socket = getSocket();
 
         if (!socket) {
-            setStatus('disconnected');
-            return;
+            socket = initSocket();
         }
 
         const handleConnect = () => setStatus('connected');

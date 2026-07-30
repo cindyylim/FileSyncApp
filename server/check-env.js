@@ -4,11 +4,15 @@ import { S3Client, ListBucketsCommand } from '@aws-sdk/client-s3';
 
 dotenv.config();
 
+const useLocalStorage = process.env.USE_LOCAL_STORAGE === 'true';
+
 const check = async () => {
     console.log('🔍 Checking environment...');
 
     // 1. Check Environment Variables
-    const required = ['MONGODB_URI', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'S3_BUCKET_NAME', 'AWS_REGION'];
+    const required = useLocalStorage
+        ? ['MONGODB_URI']
+        : ['MONGODB_URI', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'S3_BUCKET_NAME', 'AWS_REGION'];
     const missing = required.filter(key => !process.env[key] || process.env[key].includes('your-'));
 
     if (missing.length > 0) {
@@ -17,6 +21,9 @@ const check = async () => {
         process.exit(1);
     } else {
         console.log('✅ Environment variables present');
+        if (useLocalStorage) {
+            console.log('ℹ️  Running in Local Storage Mode (AWS S3 checks bypassed)');
+        }
     }
 
     // 2. Check MongoDB Connection
@@ -38,21 +45,23 @@ const check = async () => {
         console.error('❌ MongoDB Connection Failed:', err.message);
     }
 
-    // 3. Check S3 Connection
-    try {
-        console.log('⏳ Checking S3 connection...');
-        const s3 = new S3Client({
-            region: process.env.AWS_REGION,
-            credentials: {
-                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-            }
-        });
+    // 3. Check S3 Connection (Only if not using local storage)
+    if (!useLocalStorage) {
+        try {
+            console.log('⏳ Checking S3 connection...');
+            const s3 = new S3Client({
+                region: process.env.AWS_REGION,
+                credentials: {
+                    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+                }
+            });
 
-        await s3.send(new ListBucketsCommand({}));
-        console.log('✅ S3 Connection Successful');
-    } catch (err) {
-        console.error('❌ S3 Connection Failed:', err.message);
+            await s3.send(new ListBucketsCommand({}));
+            console.log('✅ S3 Connection Successful');
+        } catch (err) {
+            console.error('❌ S3 Connection Failed:', err.message);
+        }
     }
 
     process.exit(0);
